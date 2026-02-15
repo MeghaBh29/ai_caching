@@ -27,12 +27,11 @@ class QueryRequest(BaseModel):
 # -----------------------------
 # Cache configuration
 # -----------------------------
-CACHE_MAX_SIZE = 5000        # Increased cache size for realistic hit rate
-CACHE_TTL = 60 * 60 * 24     # 24 hours
+CACHE_MAX_SIZE = 5000         # larger cache for realistic FAQ scenario
+CACHE_TTL = 60 * 60 * 24      # 24 hours
 MODEL_COST_PER_1M_TOKENS = 0.50
 AVG_TOKENS_PER_REQUEST = 500
 
-# LRU cache
 cache = OrderedDict()  # key -> (answer, timestamp)
 analytics = {
     "total_requests": 0,
@@ -42,7 +41,7 @@ analytics = {
 }
 
 # -----------------------------
-# Helpers
+# Helper functions
 # -----------------------------
 def get_cache_key(query: str):
     return query.strip().lower()  # normalize query
@@ -50,11 +49,11 @@ def get_cache_key(query: str):
 def prune_cache():
     """Remove expired items and enforce max size (LRU)"""
     now = time.time()
-    # Remove expired
+    # remove expired
     keys_to_delete = [k for k, (_, ts) in cache.items() if now - ts > CACHE_TTL]
     for k in keys_to_delete:
         cache.pop(k)
-    # Remove oldest if exceeding max size
+    # remove oldest if exceeding max size
     while len(cache) > CACHE_MAX_SIZE:
         cache.popitem(last=False)
 
@@ -75,14 +74,14 @@ def query_endpoint(request: QueryRequest):
         analytics["cache_hits"] += 1
         analytics["cached_tokens"] += AVG_TOKENS_PER_REQUEST
         cached = True
-        latency = 10
+        latency = 45       # realistic cache hit latency
     else:
         # Cache miss
         answer = f"AI response for: {request.query}"
         cache[key] = (answer, time.time())
         analytics["cache_misses"] += 1
         cached = False
-        latency = 1500
+        latency = 2000     # realistic API call latency
 
     return {
         "answer": answer,
