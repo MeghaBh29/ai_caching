@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from collections import OrderedDict
 import time
+import asyncio  # for async sleep
 
 app = FastAPI()
 
@@ -61,7 +62,7 @@ def prune_cache():
 # POST / endpoint
 # -----------------------------
 @app.post("/")
-def query_endpoint(request: QueryRequest):
+async def query_endpoint(request: QueryRequest):
     analytics["total_requests"] += 1
     key = get_cache_key(request.query)
 
@@ -74,14 +75,15 @@ def query_endpoint(request: QueryRequest):
         analytics["cache_hits"] += 1
         analytics["cached_tokens"] += AVG_TOKENS_PER_REQUEST
         cached = True
-        latency = 45       # realistic cache hit latency
+        latency = 45  # cache hits ~45ms
     else:
-        # Cache miss
+        # Cache miss: simulate slow AI response
+        await asyncio.sleep(2)  # 2000ms
         answer = f"AI response for: {request.query}"
         cache[key] = (answer, time.time())
         analytics["cache_misses"] += 1
         cached = False
-        latency = 2000     # realistic API call latency
+        latency = 2000
 
     return {
         "answer": answer,
