@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,7 +8,7 @@ import time
 app = FastAPI()
 
 # -----------------------------
-# Enable CORS (optional)
+# Enable CORS
 # -----------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -26,11 +27,12 @@ class QueryRequest(BaseModel):
 # -----------------------------
 # Cache configuration
 # -----------------------------
-CACHE_MAX_SIZE = 5           # max entries
+CACHE_MAX_SIZE = 5000        # Increased cache size for realistic hit rate
 CACHE_TTL = 60 * 60 * 24     # 24 hours
 MODEL_COST_PER_1M_TOKENS = 0.50
 AVG_TOKENS_PER_REQUEST = 500
 
+# LRU cache
 cache = OrderedDict()  # key -> (answer, timestamp)
 analytics = {
     "total_requests": 0,
@@ -40,18 +42,19 @@ analytics = {
 }
 
 # -----------------------------
-# Helper functions
+# Helpers
 # -----------------------------
 def get_cache_key(query: str):
     return query.strip().lower()  # normalize query
 
 def prune_cache():
+    """Remove expired items and enforce max size (LRU)"""
     now = time.time()
-    # remove expired entries
+    # Remove expired
     keys_to_delete = [k for k, (_, ts) in cache.items() if now - ts > CACHE_TTL]
     for k in keys_to_delete:
         cache.pop(k)
-    # remove oldest if exceeding max size
+    # Remove oldest if exceeding max size
     while len(cache) > CACHE_MAX_SIZE:
         cache.popitem(last=False)
 
@@ -66,13 +69,15 @@ def query_endpoint(request: QueryRequest):
     prune_cache()
 
     if key in cache:
+        # Cache hit
         answer, ts = cache.pop(key)
-        cache[key] = (answer, ts)
+        cache[key] = (answer, ts)  # update order for LRU
         analytics["cache_hits"] += 1
         analytics["cached_tokens"] += AVG_TOKENS_PER_REQUEST
         cached = True
         latency = 10
     else:
+        # Cache miss
         answer = f"AI response for: {request.query}"
         cache[key] = (answer, time.time())
         analytics["cache_misses"] += 1
@@ -95,6 +100,7 @@ def get_analytics():
     hit_rate = analytics["cache_hits"] / total if total else 0
     miss_rate = analytics["cache_misses"] / total if total else 0
     savings = (analytics["cached_tokens"] * MODEL_COST_PER_1M_TOKENS) / 1_000_000
+    savings_percent = hit_rate * 100
     return {
         "hitRate": round(hit_rate, 2),
         "missRate": round(miss_rate, 2),
@@ -103,5 +109,6 @@ def get_analytics():
         "cacheMisses": analytics["cache_misses"],
         "cacheSize": len(cache),
         "costSavings": round(savings, 2),
+        "costSavingsPercent": round(savings_percent, 2),
         "strategies": ["exact match", "LRU eviction", "TTL expiration"]
     }
